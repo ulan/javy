@@ -383,6 +383,77 @@ impl JSContextRef {
 
     /// Wrap the specified function in a JS function.
     ///
+    /// Since the callback signature accepts parameters as high-level `JSContextRef` and `CallbackArg` objects, it can be
+    /// implemented without using `unsafe` code, unlike [JSContextRef::new_callback] which provides a low-level API.
+    /// Returning a [JSError] from the callback will cause a JavaScript error with the appropriate
+    /// type to be thrown.
+    pub fn wrap_callback2<F>(&self, mut f: F) -> Result<JSValueRef>
+    where
+        for<'a> F:
+            (FnMut(&'a Self, &CallbackArg, &[CallbackArg]) -> Result<JSValueRef<'a>>) + 'static,
+    {
+        let wrapped = move |inner, this, argc, argv: *mut JSValue, _| {
+            let inner_ctx = JSContextRef { inner };
+            match f(
+                &inner_ctx,
+                &CallbackArg::new(JSValueRef::new_unchecked(&inner_ctx, this)),
+                &(0..argc)
+                    .map(|offset| {
+                        CallbackArg::new(JSValueRef::new_unchecked(&inner_ctx, unsafe {
+                            *argv.offset(offset as isize)
+                        }))
+                    })
+                    .collect::<Box<[_]>>(),
+            ) {
+                Ok(value) => value.value,
+                Err(error) => {
+                    let format = CString::new("%s").unwrap();
+                    match error.downcast::<JSError>() {
+                        Ok(js_error) => {
+                            let message = CString::new(js_error.to_string())
+                                .unwrap_or_else(|_| CString::new("Unknown error").unwrap());
+                            match js_error {
+                                JSError::Internal(_) => unsafe {
+                                    JS_ThrowInternalError(inner, format.as_ptr(), message.as_ptr())
+                                },
+                                JSError::Syntax(_) => unsafe {
+                                    JS_ThrowSyntaxError(inner, format.as_ptr(), message.as_ptr())
+                                },
+                                JSError::Type(_) => unsafe {
+                                    JS_ThrowTypeError(inner, format.as_ptr(), message.as_ptr())
+                                },
+                                JSError::Reference(_) => unsafe {
+                                    JS_ThrowReferenceError(inner, format.as_ptr(), message.as_ptr())
+                                },
+                                JSError::Range(_) => unsafe {
+                                    JS_ThrowRangeError(inner, format.as_ptr(), message.as_ptr())
+                                },
+                            }
+                        }
+                        Err(e) => {
+                            let message = format!("{e:?}");
+                            let message = CString::new(message.as_str()).unwrap_or_else(|err| {
+                                CString::new(format!("{} - truncated due to null byte", unsafe {
+                                    str::from_utf8_unchecked(
+                                        &message.as_bytes()[..err.nul_position()],
+                                    )
+                                }))
+                                .unwrap()
+                            });
+                            unsafe {
+                                JS_ThrowInternalError(inner, format.as_ptr(), message.as_ptr())
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        self.new_callback(wrapped)
+    }
+
+    /// Wrap the specified function in a JS function.
+    ///
     /// See also [JSContextRef::wrap_callback] for a high-level equivalent.
     pub fn new_callback<F>(&self, f: F) -> Result<JSValueRef>
     where

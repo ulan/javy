@@ -38,7 +38,7 @@ impl<'a> CallbackArg<'a> {
     }
 
     /// Convert the underlying `JSValueRef` to a Rust `JSValue` type.
-    fn to_js_value(self) -> Result<JSValue> {
+    pub fn to_js_value(self) -> Result<JSValue> {
         from_qjs_value(&self.inner)
     }
 }
