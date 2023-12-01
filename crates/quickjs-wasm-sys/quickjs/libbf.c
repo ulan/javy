@@ -164,22 +164,6 @@ static inline slimb_t sat_add(slimb_t a, slimb_t b)
     return r;
 }
 
-static inline __maybe_unused limb_t shrd(limb_t low, limb_t high, long shift)
-{
-    if (shift != 0)
-        low = (low >> shift) | (high << (LIMB_BITS - shift));
-    return low;
-}
-
-static inline __maybe_unused limb_t shld(limb_t a1, limb_t a0, long shift)
-{
-    if (shift != 0)
-        return (a1 << shift) | (a0 >> (LIMB_BITS - shift));
-    else
-        return a1;
-}
-
-
 #define malloc(s) malloc_is_forbidden(s)
 #define free(p) free_is_forbidden(p)
 #define realloc(p, s) realloc_is_forbidden(p, s)
@@ -252,7 +236,7 @@ int bf_set_ui(bf_t *r, uint64_t a)
         a1 = a >> 32;
         shift = clz(a1);
         r->tab[0] = a0 << shift;
-        r->tab[1] = shld(a1, a0, shift);
+        r->tab[1] = (a1 << shift) | (a0 >> (LIMB_BITS - shift));
         r->expn = 2 * LIMB_BITS - shift;
     }
 #endif
@@ -629,7 +613,7 @@ int bf_normalize_and_round(bf_t *r, limb_t prec1, bf_flags_t flags)
             v = 0;
             for(i = 0; i < l; i++) {
                 a = r->tab[i];
-                r->tab[i] = shld(a, v, shift);
+                r->tab[i] = (a << shift) | (v >> (LIMB_BITS - shift));
                 v = a;
             }
             r->expn -= shift;
@@ -1136,7 +1120,7 @@ static limb_t mp_shr(limb_t *tab_r, const limb_t *tab, mp_size_t n,
     l = high;
     for(i = n - 1; i >= 0; i--) {
         a = tab[i];
-        tab_r[i] = shrd(a, l, shift);
+        tab_r[i] = (a >> shift) | (l << (LIMB_BITS - shift));
         l = a;
     }
     return l & (((limb_t)1 << shift) - 1);
@@ -5408,6 +5392,21 @@ int bf_acos(bf_t *r, const bf_t *a, limb_t prec, bf_flags_t flags)
 
 #endif /* LIMB_BITS != 64 */
 
+static inline __maybe_unused limb_t shrd(limb_t low, limb_t high, long shift)
+{
+    if (shift != 0)
+        low = (low >> shift) | (high << (LIMB_BITS - shift));
+    return low;
+}
+
+static inline __maybe_unused limb_t shld(limb_t a1, limb_t a0, long shift)
+{
+    if (shift != 0)
+        return (a1 << shift) | (a0 >> (LIMB_BITS - shift));
+    else
+        return a1;
+}
+
 #if LIMB_DIGITS == 19
 
 /* WARNING: hardcoded for b = 1e19. It is assumed that:
@@ -5767,7 +5766,7 @@ limb_t mp_div1_dec(limb_t *tabr, const limb_t *taba, mp_size_t na,
             for(i = na - 1; i >= 0; i--) {
                 muldq(t1, t0, r, base);
                 adddq(t1, t0, 0, taba[i]);
-                t1 = shld(t1, t0, shift);
+                t1 = (t1 << shift) | (t0 >> (LIMB_BITS - shift));
                 t0 <<= shift;
                 q = udiv1norm(&r, t1, t0, b, b_inv);
                 r >>= shift;
@@ -8134,7 +8133,8 @@ static no_inline void ntt_to_limb(BFNTTState *s, limb_t *tabr, limb_t r_len,
                     carry[j - (n_limb1 + 1)] = u[j];
             } else {
                 for(j = n_limb1; j < nb_mods - 1; j++) {
-                    carry[j - n_limb1] = shrd(u[j], u[j + 1], shift);
+                    carry[j - n_limb1] = (u[j] >> shift) |
+                        (u[j + 1] << (LIMB_BITS - shift));
                 }
                 carry[nb_mods - 1 - n_limb1] = u[nb_mods - 1] >> shift;
             }
@@ -8234,7 +8234,8 @@ static no_inline void ntt_to_limb(BFNTTState *s, limb_t *tabr, limb_t r_len,
                 carry[j - (n_limb1 + 1)] = u[j];
         } else {
             for(j = n_limb1; j < nb_mods - 1; j++) {
-                carry[j - n_limb1] = shrd(u[j], u[j + 1], shift);
+                carry[j - n_limb1] = (u[j] >> shift) |
+                    (u[j + 1] << (LIMB_BITS - shift));
             }
             carry[nb_mods - 1 - n_limb1] = u[nb_mods - 1] >> shift;
         }
