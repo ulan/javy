@@ -10022,8 +10022,10 @@ static double js_strtod(const char *p, int radix, BOOL is_float)
     
     if (!is_float || radix != 10) {
         uint64_t n_max, n;
-        int int_exp, is_neg;
-        
+        int is_neg;
+        const char* p0;
+
+        p0 = p;
         is_neg = 0;
         if (*p == '-') {
             is_neg = 1;
@@ -10034,29 +10036,24 @@ static double js_strtod(const char *p, int radix, BOOL is_float)
         while (*p == '0')
             p++;
         n = 0;
-        if (radix == 10)
-            n_max = ((uint64_t)-1 - 9) / 10; /* most common case */
-        else
-            n_max = ((uint64_t)-1 - (radix - 1)) / radix;
-        /* XXX: could be more precise */
-        int_exp = 0;
-        while (*p != '\0') {
+        /* all integers up to 2^53 can be represented as doubles precisely */
+        n_max = (uint64_t)1 << 53;
+        while (*p != '\0' && n <= n_max) {
             c = to_digit((uint8_t)*p);
             if (c >= radix)
                 break;
-            if (n <= n_max) {
-                n = n * radix + c;
-            } else {
-                int_exp++;
-            }
+            n = n * radix + c;
             p++;
         }
-        d = n;
-        if (int_exp != 0) {
-            d *= pow(radix, int_exp);
+
+        if (n <= n_max) {
+            d = n;
+            if (is_neg)
+                d = -d;
+        } else {
+            /* fall back to standard parsing in the slow path */
+            d = strtod(p0, NULL);
         }
-        if (is_neg)
-            d = -d;
     } else {
         d = strtod(p, NULL);
     }
@@ -10304,6 +10301,7 @@ static JSValue js_atof(JSContext *ctx, const char *str, const char **pp,
             buf[j++] = p_start[i];
     }
     buf[j] = '\0';
+
 
 #ifdef CONFIG_BIGNUM
     if (flags & ATOD_ACCEPT_SUFFIX) {
